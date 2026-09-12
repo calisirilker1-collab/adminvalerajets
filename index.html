@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex,nofollow,noarchive" />
+  <meta name="theme-color" content="#070a0e" />
+  <title>Valera Jets | Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Manrope:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <section id="loginView" class="login-view">
+    <div class="login-glow"></div>
+    <div class="login-shell">
+      <div class="brand-block">
+        <div class="brand-mark">V</div>
+        <div class="brand-copy"><strong>VALERA</strong><span>JETS</span></div>
+      </div>
+      <div class="login-card">
+        <div class="eyebrow">YÖNETİM PANELİ</div>
+        <h1>Uçuş taleplerini<br>tek yerden yönetin.</h1>
+        <p class="muted">Yalnızca yetkilendirilmiş Valera Jets yöneticileri giriş yapabilir.</p>
+
+        <form id="loginForm">
+          <label>
+            <span>E-posta</span>
+            <input id="loginEmail" type="email" autocomplete="username" required placeholder="admin@valerajets.com" />
+          </label>
+          <label>
+            <span>Şifre</span>
+            <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••••••" />
+          </label>
+          <button id="loginButton" class="primary-button" type="submit">Giriş Yap <span>→</span></button>
+          <p id="loginError" class="error-text" hidden></p>
+        </form>
+      </div>
+      <p class="login-foot">admin.valerajets.com · Güvenli yönetim alanı</p>
+    </div>
+  </section>
+
+  <div id="appView" class="app-view" hidden>
+    <aside class="sidebar">
+      <div>
+        <div class="brand-block sidebar-brand">
+          <div class="brand-mark">V</div>
+          <div class="brand-copy"><strong>VALERA</strong><span>JETS</span></div>
+        </div>
+        <nav>
+          <button class="nav-item active" data-filter="all"><span>⌁</span> Tüm Talepler <b id="navAllCount">0</b></button>
+          <button class="nav-item" data-filter="new"><span>＋</span> Yeni <b id="navNewCount">0</b></button>
+          <button class="nav-item" data-filter="contacted"><span>☎</span> İletişime Geçildi</button>
+          <button class="nav-item" data-filter="quoted"><span>₺</span> Teklif Verildi</button>
+          <button class="nav-item" data-filter="won"><span>✓</span> Kazanıldı</button>
+          <button class="nav-item" data-filter="lost"><span>×</span> Kaybedildi</button>
+        </nav>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="user-mini">
+          <div class="user-avatar" id="userAvatar">V</div>
+          <div><strong id="userEmail">—</strong><span>Yönetici</span></div>
+        </div>
+        <button id="logoutButton" class="logout-button">Çıkış Yap</button>
+      </div>
+    </aside>
+
+    <main class="dashboard">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow dark">VALERA JETS / OPERASYON</div>
+          <h1>Uçuş Talepleri</h1>
+        </div>
+        <div class="top-actions">
+          <button id="refreshButton" class="secondary-button">↻ Yenile</button>
+          <a class="primary-button compact" href="https://valerajets.com" target="_blank" rel="noopener">Siteyi Aç ↗</a>
+        </div>
+      </header>
+
+      <section class="stats-grid">
+        <article><span>Toplam Talep</span><strong id="statTotal">0</strong><small>Tüm zamanlar</small></article>
+        <article><span>Yeni</span><strong id="statNew">0</strong><small>İşlem bekliyor</small></article>
+        <article><span>Teklif Verildi</span><strong id="statQuoted">0</strong><small>Aktif fırsat</small></article>
+        <article><span>Kazanıldı</span><strong id="statWon">0</strong><small>Onaylanan uçuş</small></article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 id="panelTitle">Tüm Talepler</h2>
+            <p id="panelSubtitle">En yeni talepler üstte gösterilir.</p>
+          </div>
+          <div class="tools">
+            <label class="search-box"><span>⌕</span><input id="searchInput" type="search" placeholder="İsim, rota, telefon, e-posta ara…" /></label>
+            <select id="statusSelect" aria-label="Duruma göre filtrele">
+              <option value="all">Tüm durumlar</option>
+              <option value="new">Yeni</option>
+              <option value="contacted">İletişime Geçildi</option>
+              <option value="quoted">Teklif Verildi</option>
+              <option value="won">Kazanıldı</option>
+              <option value="lost">Kaybedildi</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="loadingState" class="state-box">Talepler yükleniyor…</div>
+        <div id="emptyState" class="state-box" hidden>Bu filtreye uygun talep bulunamadı.</div>
+        <div id="tableWrap" class="table-wrap" hidden>
+          <table>
+            <thead>
+              <tr>
+                <th>Talep</th>
+                <th>Müşteri</th>
+                <th>Rota</th>
+                <th>Uçuş Tarihi</th>
+                <th>Yolcu</th>
+                <th>Jet</th>
+                <th>Durum</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="requestsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+  <aside id="detailDrawer" class="detail-drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div><span class="eyebrow dark">TALEP DETAYI</span><h2 id="detailTitle">—</h2></div>
+      <button id="closeDrawer" class="icon-button" aria-label="Kapat">×</button>
+    </div>
+    <div id="detailContent" class="drawer-content"></div>
+  </aside>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
