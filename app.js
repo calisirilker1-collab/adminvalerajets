@@ -301,6 +301,13 @@
     const m=String(text||'').match(/\(([A-Z0-9]{3,4})\)\s*$/i);
     return m?m[1].toUpperCase():String(text||'—');
   };
+  const regexEscape = text => String(text||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const rfqSpecial = request => {
+    let special=String(request?.notes||'').trim();
+    if(!special)return 'None advised at this stage.';
+    [fullName(request),request?.email,request?.phone].filter(x=>String(x||'').trim().length>2).forEach(x=>{special=special.replace(new RegExp(regexEscape(String(x).trim()),'gi'),'[redacted]');});
+    return special.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,'[redacted]').replace(/\+?\d[\d\s().-]{7,}\d/g,'[redacted]');
+  };
   const rfqDate = date => {
     if(!date) return 'TBD';
     const d=new Date(String(date).length===10?`${date}T12:00:00`:date);
@@ -317,7 +324,7 @@
     const pax=r.passengers||'—';
     const aircraft=!jetType(r)||/farketmez|open|uygun/i.test(jetType(r))?'Open / Best suitable option':jetType(r);
     const time=r.preferred_departure_time||'TBD / Flexible';
-    const special=(r.notes||'').trim()||'None advised at this stage.';
+    const special=rfqSpecial(r);
     const returnLine=returnDate(r)?`\nReturn date: ${rfqDate(returnDate(r))}`:'';
     const subject=`RFQ ${leadNo(r)} | ${fromCode} → ${toCode} | ${date} | ${pax} PAX`;
     const body=`Hello,\n\nPlease provide your best charter quotation for the following request:\n\nRFQ Reference: ${leadNo(r)}\nRoute: ${from} → ${to}\nDate: ${date}${returnLine}\nPreferred departure time: ${time}\nPassengers: ${pax}\nTrip type: ${tripType(r)||'—'}\nAircraft category: ${aircraft}\n\nSpecial requirements:\n${special}\n\nPlease include in your quotation:\n- Aircraft type and model\n- Aircraft registration, if available\n- Year of manufacture / refurbishment, if available\n- Total charter price including applicable taxes and handling fees\n- Aircraft availability\n- Estimated flight time\n- Quote validity\n- Cancellation terms\n- Payment terms\n- Repositioning costs, if any\n- Catering included / excluded\n\nPlease also advise if you have any suitable empty-leg or repositioning opportunity for this route.\n\nBest regards,\nValera Jets\nCharter Desk`;
@@ -329,52 +336,63 @@
 
   function renderRfqs(){
     const draft=buildRfqDraft();
+    const availableOperators=operatorDirectory.filter(o=>o.email);
     $('rfqPanel').innerHTML=`<div class="crm-grid">
-      <article class="crm-card full"><div class="card-head"><h3>RFQ Oluştur</h3><small>${esc(leadNo(activeDeal))} · operatöre müşteri bilgisi gitmez</small></div>
+      <article class="crm-card full"><div class="card-head"><h3>RFQ Gönder</h3><small>${esc(leadNo(activeDeal))} · müşteri iletişim bilgileri paylaşılmaz</small></div>
         <form id="rfqForm" class="field-grid">
-          <label class="field full"><span>Kayıtlı operatörden seç</span><select name="operator_id" id="rfqOperatorSelect">${operatorOptions()}</select></label>
-          <label class="field"><span>Operator / şirket</span><input name="operator_name" required placeholder="Örn. ABC Aviation"></label>
-          <label class="field"><span>Operator e-posta</span><input name="operator_email" type="email" required placeholder="charter@operator.com"></label>
-          <label class="field full"><span>E-posta subject</span><input name="subject" required value="${esc(draft.subject)}"></label>
-          <label class="field full"><span>RFQ e-posta metni</span><textarea class="rfq-body" name="body" required>${esc(draft.body)}</textarea></label>
+          <div class="field full"><span>Gönderilecek AOC / operatörler</span>
+            <div class="rfq-operator-toolbar"><label class="search-box"><span>⌕</span><input id="rfqOperatorSearch" type="search" placeholder="Operatör, AOC veya e-posta ara…"></label><strong id="rfqSelectedCount">0 operatör seçildi</strong></div>
+            <div class="rfq-operator-list" id="rfqOperatorList">${availableOperators.length?availableOperators.map(o=>`<label class="rfq-operator-option" data-search="${esc([o.name,o.aoc_no,o.email].join(' ').toLocaleLowerCase('tr-TR'))}"><input type="checkbox" name="operator_ids" value="${esc(o.id)}" ${o.preferred?'checked':''}><span><strong>${o.preferred?'★ ':''}${esc(o.name)}</strong><small>${esc(o.aoc_no||'AOC no yok')} · ${esc(o.email)}</small></span></label>`).join(''):'<div class="empty-inline">RFQ e-postası kayıtlı aktif operatör bulunamadı.</div>'}</div>
+          </div>
+          <label class="field full"><span>E-posta subject · uçuş kaydından otomatik oluşturulur</span><input name="subject" readonly value="${esc(draft.subject)}"></label>
+          <label class="field full"><span>RFQ önizleme · gönderimde sunucu aynı metni güvenli biçimde yeniden oluşturur</span><textarea class="rfq-body" name="body" readonly>${esc(draft.body)}</textarea></label>
           <div class="rfq-actions full">
             <button type="button" id="copyRfq" class="secondary-button">RFQ'yu Kopyala</button>
-            <button type="button" id="openGmail" class="secondary-button">Gmail'de Aç ↗</button>
-            <button type="submit" class="primary-button compact">Gönderildi Olarak Kaydet</button>
+            <button type="submit" id="sendRfqButton" class="primary-button compact" disabled>ONAYLA VE GÖNDER</button>
           </div>
         </form>
-        <p class="rfq-hint">Önerilen akış: operatörü seç → Gmail'de Aç → maili gönder → “Gönderildi Olarak Kaydet”. Böylece RFQ timeline ve CRM'de takip edilir.</p>
+        <p class="rfq-hint">Seçilen her operatöre ayrı e-posta gönderilir. Operatörler birbirini ve müşteri adı, telefonu veya e-postasını görmez.</p>
       </article>
       <article class="crm-card full"><div class="card-head"><h3>Gönderilen / hazırlanan RFQ'lar</h3><small>${dealRfqs.length} kayıt</small></div>
         <div class="quote-list">${dealRfqs.length?dealRfqs.map(r=>rfqCard(r)).join(''):'<div class="empty-inline">Henüz operatöre RFQ kaydedilmedi.</div>'}</div>
       </article>
     </div>`;
-    $('rfqForm').addEventListener('submit',saveRfqAsSent);
-    $('rfqOperatorSelect').addEventListener('change',e=>{const o=operatorDirectory.find(x=>x.id===e.target.value);if(!o)return;const f=$('rfqForm');f.elements.operator_name.value=o.name||'';f.elements.operator_email.value=o.email||'';if(!o.email)notify('Bu operatör için RFQ e-postası henüz kayıtlı değil. Operatörler ekranından ekleyebilirsin.');});
+    $('rfqForm').addEventListener('submit',sendRfqBatch);
+    $('rfqOperatorList').querySelectorAll('input[name="operator_ids"]').forEach(x=>x.addEventListener('change',updateRfqSelection));
+    $('rfqOperatorSearch').addEventListener('input',filterRfqOperators);
     $('copyRfq').addEventListener('click',copyCurrentRfq);
-    $('openGmail').addEventListener('click',openCurrentRfqInGmail);
+    updateRfqSelection();
     $('rfqPanel').querySelectorAll('.rfq-status').forEach(s=>s.addEventListener('change',()=>updateRfqStatus(s.dataset.id,s.value)));
     $('rfqPanel').querySelectorAll('.rfq-gmail').forEach(b=>b.addEventListener('click',()=>{const r=dealRfqs.find(x=>x.id===b.dataset.id);if(r)window.open(gmailComposeUrl(r.operator_email,r.subject,r.body),'_blank','noopener');}));
     $('rfqPanel').querySelectorAll('.rfq-copy').forEach(b=>b.addEventListener('click',()=>{const r=dealRfqs.find(x=>x.id===b.dataset.id);if(r)copyText(`${r.subject}\n\n${r.body}`,'RFQ kopyalandı.');}));
     $('rfqPanel').querySelectorAll('.delete-rfq').forEach(b=>b.addEventListener('click',()=>deleteRfq(b.dataset.id)));
   }
-  function rfqCard(r){return `<div class="quote-card rfq-card"><div class="rfq-summary"><div><strong>${esc(r.operator_name)}</strong><span>${esc(r.operator_email)}</span></div><div><strong>${esc(r.subject)}</strong><span>${esc(fmtDateTime(r.sent_at||r.created_at))}</span></div><div><select class="rfq-status" data-id="${esc(r.id)}">${rfqStatusOptions(r.status)}</select></div><div class="rfq-card-actions"><button class="mini-button rfq-copy" data-id="${esc(r.id)}">Kopyala</button><button class="mini-button rfq-gmail" data-id="${esc(r.id)}">Gmail ↗</button><button class="danger-button delete-rfq" data-id="${esc(r.id)}">Sil</button></div></div></div>`;}
+  function rfqCard(r){const failed=r.delivery_status==='failed';return `<div class="quote-card rfq-card ${failed?'rfq-failed':''}"><div class="rfq-summary"><div><strong>${esc(r.operator_name)}</strong><span>${esc(r.operator_email)}</span></div><div><strong>${esc(r.subject)}</strong><span>${esc(fmtDateTime(r.sent_at||r.created_at))}${failed?` · Gönderilemedi: ${esc(r.error_message||'Bilinmeyen hata')}`:''}</span></div><div><select class="rfq-status" data-id="${esc(r.id)}">${rfqStatusOptions(r.status)}</select></div><div class="rfq-card-actions"><button class="mini-button rfq-copy" data-id="${esc(r.id)}">Kopyala</button><button class="mini-button rfq-gmail" data-id="${esc(r.id)}">Gmail ↗</button><button class="danger-button delete-rfq" data-id="${esc(r.id)}">Sil</button></div></div></div>`;}
   async function copyText(text,message='Kopyalandı.'){
     try{await navigator.clipboard.writeText(text);notify(message);}catch(_){const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();notify(message);}
   }
-  function currentRfqFormData(){const f=$('rfqForm'),fd=new FormData(f);return {operator_id:String(fd.get('operator_id')||'')||null,operator_name:String(fd.get('operator_name')||'').trim(),operator_email:String(fd.get('operator_email')||'').trim(),subject:String(fd.get('subject')||'').trim(),body:String(fd.get('body')||'').trim()};}
+  function selectedRfqOperatorIds(){return [...$('rfqOperatorList').querySelectorAll('input[name="operator_ids"]:checked')].map(x=>x.value);}
+  function updateRfqSelection(){const count=selectedRfqOperatorIds().length;$('rfqSelectedCount').textContent=`${count} operatör seçildi`;$('sendRfqButton').disabled=count===0;$('sendRfqButton').textContent=count?`ONAYLA VE ${count} OPERATÖRE GÖNDER`:'ONAYLA VE GÖNDER';}
+  function filterRfqOperators(){const q=String($('rfqOperatorSearch').value||'').trim().toLocaleLowerCase('tr-TR');$('rfqOperatorList').querySelectorAll('.rfq-operator-option').forEach(x=>{x.hidden=!!q&&!x.dataset.search.includes(q);});}
+  function currentRfqFormData(){const f=$('rfqForm'),fd=new FormData(f);return {subject:String(fd.get('subject')||'').trim(),body:String(fd.get('body')||'').trim()};}
   function copyCurrentRfq(){const p=currentRfqFormData();copyText(`${p.subject}\n\n${p.body}`,'RFQ kopyalandı.');}
-  function openCurrentRfqInGmail(){const p=currentRfqFormData();if(!p.operator_email){notify('Önce operator e-postasını gir.');return;}window.open(gmailComposeUrl(p.operator_email,p.subject,p.body),'_blank','noopener');}
-  async function saveRfqAsSent(e){
-    e.preventDefault();const p=currentRfqFormData();
-    if(!p.operator_name||!p.operator_email||!p.subject||!p.body){notify('Operator, e-posta, subject ve RFQ metni gerekli.');return;}
-    const payload={request_id:activeDeal.id,...p,status:'sent',sent_at:new Date().toISOString()};
-    const {error}=await db.from('rfq_requests').insert(payload);
-    if(error){notify(`RFQ kaydedilemedi: ${error.message}`);return;}
-    if(p.operator_id) await db.from('operator_directory').update({last_contacted_at:new Date().toISOString()}).eq('id',p.operator_id);
-    await addTimeline(activeDeal.id,'rfq_sent',`RFQ gönderildi · ${p.operator_name}`,p.subject);
-    if(['new','qualified'].includes(normalizeStatus(activeDeal.status))) await updateDealStatus('sourcing',false);
-    await loadDealRelations();renderAllDealPanels();setActiveTab('rfq');notify('RFQ gönderildi olarak kaydedildi.');
+  async function sendRfqBatch(e){
+    e.preventDefault();
+    const operatorIds=selectedRfqOperatorIds();
+    if(!operatorIds.length){notify('En az bir operatör seç.');return;}
+    const names=operatorIds.map(id=>operatorDirectory.find(o=>o.id===id)?.name).filter(Boolean);
+    if(!confirm(`${names.length} operatöre ayrı ayrı RFQ gönderilecek:\n\n${names.join('\n')}\n\nGönderimi onaylıyor musun?`))return;
+    const button=$('sendRfqButton');button.disabled=true;button.textContent='GÖNDERİLİYOR…';
+    const batchId=crypto.randomUUID();
+    try{
+      const {data,error}=await db.functions.invoke('send-rfq',{body:{request_id:activeDeal.id,operator_ids:operatorIds,batch_id:batchId}});
+      if(error){let message=error.message||'Sunucu hatası';try{const detail=await error.context?.json?.();if(detail?.error)message=detail.error;}catch(_){}throw new Error(message);}
+      const sent=Number(data?.sent_count||0),failed=Number(data?.failed_count||0);
+      await Promise.all([loadDealRelations(),loadOperatorDirectory(),loadRequests()]);
+      const refreshed=rows.find(r=>r.id===activeDeal.id);if(refreshed)activeDeal=refreshed;
+      renderAllDealPanels();setActiveTab('rfq');
+      notify(failed?`${sent} RFQ gönderildi, ${failed} gönderim başarısız.`:`${sent} RFQ başarıyla gönderildi.`);
+    }catch(error){console.error('send-rfq',error);notify(`RFQ gönderilemedi: ${error?.message||'Sunucu hatası'}`);button.disabled=false;updateRfqSelection();}
   }
   async function updateRfqStatus(id,status){
     const patch={status,responded_at:['responded','declined','no_availability'].includes(status)?new Date().toISOString():null};
