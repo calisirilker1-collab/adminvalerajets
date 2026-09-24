@@ -449,8 +449,9 @@
     $('clientQuotePanel').querySelectorAll('.toggle-client-quote').forEach(b=>b.addEventListener('click',()=>{const x=b.closest('.quote-card').querySelector('.quote-edit');x.hidden=!x.hidden;}));
     $('clientQuotePanel').querySelectorAll('.client-quote-form').forEach(f=>f.addEventListener('submit',saveClientQuote));
     $('clientQuotePanel').querySelectorAll('.delete-client-quote').forEach(b=>b.addEventListener('click',()=>deleteClientQuote(b.dataset.id)));
+    $('clientQuotePanel').querySelectorAll('.generate-client-doc').forEach(b=>b.addEventListener('click',()=>openClientDocumentBuilder(b.dataset.id)));
   }
-  function clientQuoteCard(q){ const linked=dealOperatorQuotes.find(o=>o.id===q.operator_quote_id); return `<div class="quote-card"><div class="quote-summary"><div><strong>Version ${esc(q.version)}</strong><span>${esc(q.aircraft_model||linked?.aircraft_model||'Aircraft belirtilmedi')}</span></div><div><strong>${money(q.client_price,q.currency)}</strong><span>Client price</span></div><div><span class="tag ${esc(q.status)}">${esc(q.status.toUpperCase())}</span></div><div><strong>${esc(fmtDateTime(q.valid_until))}</strong><span>Valid until</span></div><button class="mini-button toggle-client-quote">Düzenle</button></div><div class="quote-edit" hidden>${clientQuoteForm(q)}</div></div>`; }
+  function clientQuoteCard(q){ const linked=dealOperatorQuotes.find(o=>o.id===q.operator_quote_id); return `<div class="quote-card"><div class="quote-summary"><div><strong>Version ${esc(q.version)}</strong><span>${esc(q.aircraft_model||linked?.aircraft_model||'Aircraft belirtilmedi')}</span></div><div><strong>${money(q.client_price,q.currency)}</strong><span>Client price</span></div><div><span class="tag ${esc(q.status)}">${esc(q.status.toUpperCase())}</span></div><div><strong>${esc(fmtDateTime(q.valid_until))}</strong><span>Valid until</span></div><div class="quote-card-actions"><button class="mini-button toggle-client-quote">Düzenle</button><button class="mini-button generate-client-doc" data-id="${esc(q.id)}">Belge Oluştur</button></div></div><div class="quote-edit" hidden>${clientQuoteForm(q)}</div></div>`; }
   function clientQuoteForm(q={}){ const id=q.id||''; return `<form class="client-quote-form field-grid" data-id="${esc(id)}">
     <input type="hidden" name="version" value="${esc(q.version||1)}">
     <label class="field"><span>Bağlı operator quote</span><select name="operator_quote_id"><option value="">— Manuel / seçilmedi —</option>${dealOperatorQuotes.map(o=>`<option value="${esc(o.id)}" ${o.id===q.operator_quote_id?'selected':''}>${esc(o.operator_name)} · ${esc(o.aircraft_model)} · ${money(o.operator_cost,o.currency)}</option>`).join('')}</select></label>
@@ -475,6 +476,256 @@
     await loadDealRelations();renderAllDealPanels();notify(id?'Client quote güncellendi.':'Client quote oluşturuldu.');
   }
   async function deleteClientQuote(id){ if(!confirm('Bu client quote silinsin mi?'))return; const {error}=await db.from('client_quotes').delete().eq('id',id);if(error){notify(error.message);return;}await addTimeline(activeDeal.id,'client_quote_deleted','Client quote silindi');await loadDealRelations();renderAllDealPanels();notify('Client quote silindi.'); }
+
+  function getDocumentProfile(){
+    try{return JSON.parse(localStorage.getItem('valera_client_document_profile')||'{}')||{};}catch(_){return {};}
+  }
+
+  function saveDocumentProfile(profile){
+    try{localStorage.setItem('valera_client_document_profile',JSON.stringify(profile));}catch(_){}
+  }
+
+  function openClientDocumentBuilder(id){
+    const q=dealClientQuotes.find(x=>String(x.id)===String(id));
+    if(!q)return;
+    const op=q.operator_quote_id?dealOperatorQuotes.find(x=>x.id===q.operator_quote_id):null;
+    const f=$('documentBuilderForm');
+    const profile=getDocumentProfile();
+
+    f.elements.quote_id.value=q.id;
+    f.elements.document_type.value='agreement';
+    f.elements.customer_name.value=fullName(activeDeal)||'';
+    f.elements.customer_address.value='';
+    f.elements.customer_id.value='';
+    f.elements.show_operator.value='no';
+    f.elements.seller_legal_name.value=profile.seller_legal_name||'';
+    f.elements.seller_tax.value=profile.seller_tax||'';
+    f.elements.seller_address.value=profile.seller_address||'';
+    f.elements.payment_terms.value=profile.payment_terms||"Rezervasyonun kesinleşmesi için toplam uçuş bedelinin %100'ünün belirtilen ödeme süresi içinde tahsil edilmesi gerekir.";
+    f.elements.price_scope.value=profile.price_scope||'Belirtilen bedel, bu belgede tanımlanan charter uçuş hizmeti içindir. Sonradan talep edilen ek hizmetler ayrıca fiyatlandırılabilir.';
+    f.elements.cancellation_terms.value=op?.cancellation_terms||profile.cancellation_terms||'İptal ve değişiklikler, uçuşu gerçekleştirecek hava taşıyıcısının geçerli koşullarına tabidir.';
+    f.elements.additional_terms.value=q.notes||activeDeal.notes||'';
+
+    $('documentBuilderSubline').textContent=`${leadNo(activeDeal)} · Client Quote v${q.version} · ${money(q.client_price,q.currency)}`;
+    $('documentBuilderBackdrop').hidden=false;
+    $('documentBuilder').classList.add('open');
+    $('documentBuilder').setAttribute('aria-hidden','false');
+  }
+
+  function closeClientDocumentBuilder(){
+    $('documentBuilder')?.classList.remove('open');
+    $('documentBuilder')?.setAttribute('aria-hidden','true');
+    if($('documentBuilderBackdrop')) $('documentBuilderBackdrop').hidden=true;
+  }
+
+  function docText(value,fallback='—'){
+    const s=String(value??'').trim();
+    return esc(s||fallback).replace(/\n/g,'<br>');
+  }
+
+  function docYesNo(value){
+    if(value===true)return 'Dahil';
+    if(value===false)return 'Dahil değil';
+    return 'Operatör onayına tabi';
+  }
+
+  function buildClientDocumentHtml(q,settings){
+    const r=activeDeal;
+    const op=q.operator_quote_id?dealOperatorQuotes.find(x=>x.id===q.operator_quote_id):null;
+    const isAgreement=settings.document_type==='agreement';
+    const docNo=`${leadNo(r)}-Q${q.version}`;
+    const aircraft=q.aircraft_model||op?.aircraft_model||jetType(r)||'Uçak tipi teklif teyidinde belirtilecektir';
+    const issueDate=new Intl.DateTimeFormat('tr-TR',{day:'2-digit',month:'long',year:'numeric'}).format(new Date());
+    const operatorLine=settings.show_operator==='yes'&&op?.operator_name
+      ? `<div class="detail"><span>Operatör</span><strong>${docText(op.operator_name)}</strong></div>`
+      : '';
+    const yearLine=op?.aircraft_year?`<div class="detail"><span>Uçak yılı</span><strong>${docText(op.aircraft_year)}</strong></div>`:'';
+    const seatsLine=op?.seats?`<div class="detail"><span>Koltuk kapasitesi</span><strong>${docText(op.seats)}</strong></div>`:'';
+    const returnLine=returnDate(r)?`<div class="detail"><span>Dönüş</span><strong>${docText(fmtDate(returnDate(r)))}</strong></div>`:'';
+    const sellerName=String(settings.seller_legal_name||'').trim()||'Valera Jets';
+    const customerAddress=String(settings.customer_address||'').trim();
+    const customerId=String(settings.customer_id||'').trim();
+    const sellerMeta=[settings.seller_address,settings.seller_tax].filter(Boolean).map(x=>docText(x)).join('<br>');
+    const customerMeta=[customerAddress,customerId?('Vergi / Kimlik: '+customerId):''].filter(Boolean).map(x=>docText(x)).join('<br>');
+    const cancellation=settings.cancellation_terms||op?.cancellation_terms||'İptal ve değişiklikler, uçuşu gerçekleştirecek hava taşıyıcısının geçerli koşullarına tabidir.';
+    const docTitle=isAgreement?'ÖZEL JET UÇUŞ TEKLİFİ VE CHARTER HİZMET SÖZLEŞMESİ':'ÖZEL JET UÇUŞ TEKLİFİ';
+    const docSubtitle=isAgreement?'PRIVATE JET CHARTER PROPOSAL & SERVICE AGREEMENT':'PRIVATE JET CHARTER PROPOSAL';
+
+    return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${docNo} · Valera Jets</title>
+<style>
+  @page{size:A4;margin:14mm}
+  *{box-sizing:border-box}
+  body{margin:0;background:#ecebe7;color:#101419;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .page{width:210mm;min-height:297mm;margin:20px auto;background:#fff;padding:17mm 17mm 15mm;box-shadow:0 18px 60px rgba(0,0,0,.12)}
+  .tools{position:fixed;right:20px;top:20px;display:flex;gap:8px;z-index:10}
+  .tools button{border:0;background:#c7a86c;color:#111;padding:11px 15px;font-weight:700;cursor:pointer}
+  .header{display:flex;justify-content:space-between;gap:28px;padding-bottom:18px;border-bottom:1px solid #d9d6cf}
+  .brand{display:flex;align-items:center;gap:12px}
+  .mark{width:42px;height:42px;border:1px solid #252a30;border-radius:50%;display:grid;place-items:center;font-size:21px;font-weight:700}
+  .brand strong{font-size:21px;letter-spacing:.18em}
+  .brand em{font-style:normal;color:#a88745;letter-spacing:.28em;margin-left:7px;font-size:12px}
+  .meta{text-align:right;font-size:10px;line-height:1.7;color:#697078}.meta b{color:#171b20}
+  .hero{padding:28px 0 24px}.hero .eyebrow{font-size:9px;letter-spacing:.2em;color:#9a7d3f;font-weight:700}
+  h1{font-size:27px;line-height:1.15;margin:9px 0 5px;letter-spacing:-.02em}.subtitle{font-size:9px;color:#85898e;letter-spacing:.12em}
+  .route{margin-top:24px;background:#10151b;color:#fff;padding:20px 22px;display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:center}
+  .route small{display:block;color:#8d969f;font-size:9px;text-transform:uppercase;letter-spacing:.12em}.route strong{display:block;font-size:22px;margin-top:7px}.route .to{text-align:right}.route .arrow{color:#c7a86c;font-size:20px}
+  .section{margin-top:22px}.section-title{font-size:10px;letter-spacing:.14em;color:#866d39;font-weight:700;margin-bottom:9px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.detail{border:1px solid #e2dfd8;padding:11px;min-height:58px}.detail span{display:block;font-size:8px;color:#85898e;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}.detail strong{font-size:11px;line-height:1.4}
+  .parties{display:grid;grid-template-columns:1fr 1fr;gap:10px}.party{border:1px solid #ddd9d1;padding:13px}.party h3{font-size:11px;margin:0 0 8px}.party p{font-size:10px;line-height:1.55;color:#62676d;margin:0}
+  .pricebox{display:flex;justify-content:space-between;align-items:flex-end;background:#f3f0e9;padding:18px 20px;border-left:3px solid #c7a86c}.pricebox span{display:block;font-size:9px;color:#73787d;text-transform:uppercase;letter-spacing:.1em}.pricebox strong{font-size:29px}.valid{font-size:9px;color:#6e747a;text-align:right;line-height:1.5}
+  .terms{counter-reset:item;margin:0;padding:0;list-style:none}.terms li{counter-increment:item;position:relative;padding-left:25px;margin:0 0 9px;font-size:9.5px;line-height:1.55;color:#454b50}.terms li:before{content:counter(item);position:absolute;left:0;top:0;width:17px;height:17px;border:1px solid #b9aa86;border-radius:50%;display:grid;place-items:center;color:#806938;font-size:8px;font-weight:700}
+  .note{padding:12px 14px;background:#f8f7f3;border:1px solid #e4e1da;font-size:9.5px;line-height:1.55;color:#51565b}
+  .signatures{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:30px}.signature{padding-top:38px;border-top:1px solid #72777b;font-size:9px}.signature strong{display:block;font-size:10px;margin-bottom:4px}
+  .footer{margin-top:28px;padding-top:11px;border-top:1px solid #dfdcd5;display:flex;justify-content:space-between;gap:20px;font-size:8px;color:#8a8e92}
+  @media print{body{background:#fff}.page{margin:0;box-shadow:none;width:auto;min-height:auto;padding:0}.tools{display:none}}
+</style>
+</head>
+<body>
+<div class="tools"><button onclick="window.print()">PDF / Yazdır</button></div>
+<main class="page">
+  <header class="header">
+    <div class="brand"><div class="mark">V</div><div><strong>VALERA</strong><em>JETS</em></div></div>
+    <div class="meta">
+      <div>Belge No: <b>${docText(docNo)}</b></div>
+      <div>Düzenleme: <b>${docText(issueDate)}</b></div>
+      <div>Geçerlilik: <b>${docText(fmtDateTime(q.valid_until),'Teklif teyidine kadar')}</b></div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="eyebrow">VALERA JETS · PRIVATE AVIATION</div>
+    <h1>${docTitle}</h1>
+    <div class="subtitle">${docSubtitle}</div>
+
+    <div class="route">
+      <div><small>Nereden</small><strong>${docText(origin(r))}</strong></div>
+      <div class="arrow">→</div>
+      <div class="to"><small>Nereye</small><strong>${docText(destination(r))}</strong></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-title">TARAFLAR</div>
+    <div class="parties">
+      <div class="party"><h3>Hizmet Sağlayıcı / Broker</h3><p><b>${docText(sellerName)}</b><br>${sellerMeta||'Valera Jets · valerajets.com'}</p></div>
+      <div class="party"><h3>Müşteri</h3><p><b>${docText(settings.customer_name)}</b><br>${customerMeta||docText(r.email||r.phone||'')}</p></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-title">UÇUŞ DETAYLARI</div>
+    <div class="grid">
+      <div class="detail"><span>Uçuş tipi</span><strong>${docText(tripType(r))}</strong></div>
+      <div class="detail"><span>Gidiş tarihi</span><strong>${docText(fmtDate(departure(r)))}</strong></div>
+      ${returnLine}
+      <div class="detail"><span>Tercih edilen saat</span><strong>${docText(r.preferred_departure_time||'Operasyon teyidinde')}</strong></div>
+      <div class="detail"><span>Yolcu</span><strong>${docText(r.passengers)} kişi</strong></div>
+      <div class="detail"><span>Uçak</span><strong>${docText(aircraft)}</strong></div>
+      ${yearLine}
+      ${seatsLine}
+      ${operatorLine}
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-title">TİCARİ TEKLİF</div>
+    <div class="pricebox">
+      <div><span>Toplam uçuş bedeli</span><strong>${money(q.client_price,q.currency)}</strong></div>
+      <div class="valid">Teklif geçerlilik<br><b>${docText(fmtDateTime(q.valid_until),'Teyide kadar')}</b></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-title">KAPSAM</div>
+    <div class="grid">
+      <div class="detail"><span>Catering</span><strong>${docYesNo(op?.catering_included)}</strong></div>
+      <div class="detail"><span>Repositioning</span><strong>${docYesNo(op?.reposition_included)}</strong></div>
+      <div class="detail"><span>Özel talepler</span><strong>${docText(r.notes||settings.additional_terms||'Operatör onayına tabi')}</strong></div>
+    </div>
+    <div class="note" style="margin-top:8px">${docText(settings.price_scope)}</div>
+  </section>
+
+  <section class="section">
+    <div class="section-title">${isAgreement?'SÖZLEŞME KOŞULLARI':'TEKLİF KOŞULLARI'}</div>
+    <ol class="terms">
+      <li>Bu belge kapsamındaki uçak ve slot uygunluğu, müşteri teyidi ve ödeme tamamlanana kadar değişebilir.</li>
+      <li><b>Ödeme:</b> ${docText(settings.payment_terms)}</li>
+      <li><b>İptal / değişiklik:</b> ${docText(cancellation)}</li>
+      <li>Planlanan saatler; hava koşulları, hava trafik kontrolü, slot, havalimanı kısıtları, teknik veya operasyonel gereklilikler nedeniyle değişebilir.</li>
+      <li>Yolcu pasaport, vize ve seyahat belgelerinin geçerliliğinden müşteri sorumludur. Yolcu manifestosu uçuş öncesinde zamanında iletilmelidir.</li>
+      <li>Bagaj, evcil hayvan, özel ikram, kara transferi ve benzeri özel talepler; uçak kapasitesi ve ilgili hava taşıyıcısının onayına tabidir.</li>
+      <li>Valera Jets charter talebinde broker/aracı ve koordinasyon sağlayıcısı olarak hareket eder. Uçuşun operasyonel icrası, ilgili uçuşu gerçekleştiren hava taşıyıcısının sorumluluğundadır.</li>
+      ${isAgreement?'<li>Müşterinin bu belgeyi imzalaması veya yazılı olarak kabul etmesi, belirtilen ticari koşulların kabulü anlamına gelir. Rezervasyon, gerekli ödeme ve operasyon teyidi tamamlandığında kesinleşir.</li>':''}
+    </ol>
+  </section>
+
+  ${settings.additional_terms?`<section class="section"><div class="section-title">EK NOTLAR</div><div class="note">${docText(settings.additional_terms)}</div></section>`:''}
+
+  ${isAgreement?`<section class="signatures">
+    <div class="signature"><strong>${docText(sellerName)}</strong>Yetkili / İmza / Tarih</div>
+    <div class="signature"><strong>${docText(settings.customer_name)}</strong>Müşteri / İmza / Tarih</div>
+  </section>`:''}
+
+  <footer class="footer"><span>Valera Jets · Private Aviation Brokerage</span><span>valerajets.com · ${docText(docNo)}</span></footer>
+</main>
+</body>
+</html>`;
+  }
+
+  async function generateClientDocumentFromBuilder(e){
+    e.preventDefault();
+    const f=e.currentTarget;
+    const fd=new FormData(f);
+    const quoteId=String(fd.get('quote_id')||'');
+    const q=dealClientQuotes.find(x=>String(x.id)===quoteId);
+    if(!q){notify('Client quote bulunamadı.');return;}
+
+    const settings={
+      document_type:String(fd.get('document_type')||'agreement'),
+      customer_name:String(fd.get('customer_name')||'').trim(),
+      customer_address:String(fd.get('customer_address')||'').trim(),
+      customer_id:String(fd.get('customer_id')||'').trim(),
+      show_operator:String(fd.get('show_operator')||'no'),
+      seller_legal_name:String(fd.get('seller_legal_name')||'').trim(),
+      seller_tax:String(fd.get('seller_tax')||'').trim(),
+      seller_address:String(fd.get('seller_address')||'').trim(),
+      payment_terms:String(fd.get('payment_terms')||'').trim(),
+      price_scope:String(fd.get('price_scope')||'').trim(),
+      cancellation_terms:String(fd.get('cancellation_terms')||'').trim(),
+      additional_terms:String(fd.get('additional_terms')||'').trim()
+    };
+
+    saveDocumentProfile({
+      seller_legal_name:settings.seller_legal_name,
+      seller_tax:settings.seller_tax,
+      seller_address:settings.seller_address,
+      payment_terms:settings.payment_terms,
+      price_scope:settings.price_scope,
+      cancellation_terms:settings.cancellation_terms
+    });
+
+    const popup=window.open('','_blank');
+    if(!popup){notify('Belge penceresi tarayıcı tarafından engellendi. Pop-up izni verip tekrar deneyin.');return;}
+    popup.document.open();
+    popup.document.write(buildClientDocumentHtml(q,settings));
+    popup.document.close();
+
+    await addTimeline(
+      activeDeal.id,
+      'client_document_generated',
+      settings.document_type==='agreement'?'Müşteri sözleşmesi oluşturuldu':'Müşteri teklif belgesi oluşturuldu',
+      `${leadNo(activeDeal)}-Q${q.version} · ${money(q.client_price,q.currency)}`
+    );
+    await loadDealRelations();
+    $('timelineCount').textContent=dealTimeline.length;
+    closeClientDocumentBuilder();
+    notify('Müşteri belgesi oluşturuldu.');
+  }
 
   function financeBasis(){
     const accepted=dealClientQuotes.find(q=>q.status==='accepted')||dealClientQuotes.find(q=>q.status==='sent')||dealClientQuotes[0]||null;
@@ -540,6 +791,11 @@
   $('closeWorkspace').addEventListener('click',closeWorkspace);workspaceBackdrop.addEventListener('click',closeWorkspace);
   $('dealTabs').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(b)setActiveTab(b.dataset.tab);});
   $('dealStatus').addEventListener('change',e=>updateDealStatus(e.target.value,true));
+
+  $('documentBuilderForm')?.addEventListener('submit',generateClientDocumentFromBuilder);
+  $('closeDocumentBuilder')?.addEventListener('click',closeClientDocumentBuilder);
+  $('cancelDocumentBuilder')?.addEventListener('click',closeClientDocumentBuilder);
+  $('documentBuilderBackdrop')?.addEventListener('click',closeClientDocumentBuilder);
 
   db.channel('valera-admin-flight-requests').on('postgres_changes',{event:'INSERT',schema:'public',table:'flight_requests'},async()=>{await loadRequests();notify('Yeni uçuş talebi geldi.');}).subscribe();
 
