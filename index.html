@@ -178,6 +178,108 @@
     </div>
   </section>
 
+  <div id="documentBuilderBackdrop" class="document-builder-backdrop" hidden></div>
+  <section id="documentBuilder" class="document-builder" aria-hidden="true">
+    <header class="document-builder-head">
+      <div>
+        <div class="eyebrow dark">VALERA JETS / CLIENT DOCUMENT</div>
+        <h2>Teklif / Sözleşme Oluştur</h2>
+        <p id="documentBuilderSubline" class="muted">Müşteriye gönderilecek belgeyi hazırlayın.</p>
+      </div>
+      <button id="closeDocumentBuilder" class="secondary-button" type="button">Kapat ×</button>
+    </header>
+
+    <form id="documentBuilderForm" class="document-builder-body">
+      <input type="hidden" name="quote_id">
+
+      <div class="document-builder-grid">
+        <label class="field">
+          <span>Belge tipi</span>
+          <select name="document_type">
+            <option value="proposal">Uçuş Teklifi</option>
+            <option value="agreement" selected>Teklif + Charter Hizmet Sözleşmesi</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Müşteri / şirket adı</span>
+          <input name="customer_name" required>
+        </label>
+
+        <label class="field full">
+          <span>Müşteri adresi</span>
+          <input name="customer_address" placeholder="Opsiyonel - fatura / sözleşme adresi">
+        </label>
+
+        <label class="field">
+          <span>Vergi no / TCKN / Pasaport</span>
+          <input name="customer_id" placeholder="Opsiyonel">
+        </label>
+
+        <label class="field">
+          <span>Operatör adı belgede görünsün</span>
+          <select name="show_operator">
+            <option value="no" selected>Hayır</option>
+            <option value="yes">Evet</option>
+          </select>
+        </label>
+
+        <div class="document-builder-divider full">
+          <strong>Valera Jets resmi bilgiler</strong>
+          <span>Bir kez doldurduğunuzda bu tarayıcıda hatırlanır.</span>
+        </div>
+
+        <label class="field">
+          <span>Resmi şirket unvanı</span>
+          <input name="seller_legal_name" placeholder="Örn. ABC Turizm Ltd. Şti.">
+        </label>
+
+        <label class="field">
+          <span>Vergi dairesi / vergi no</span>
+          <input name="seller_tax" placeholder="Opsiyonel">
+        </label>
+
+        <label class="field full">
+          <span>Şirket adresi</span>
+          <input name="seller_address" placeholder="Resmi adres">
+        </label>
+
+        <div class="document-builder-divider full">
+          <strong>Ticari koşullar</strong>
+          <span>Operator quote ve client quote verileri otomatik kullanılır.</span>
+        </div>
+
+        <label class="field full">
+          <span>Ödeme koşulu</span>
+          <textarea name="payment_terms">Rezervasyonun kesinleşmesi için toplam uçuş bedelinin %100'ünün belirtilen ödeme süresi içinde tahsil edilmesi gerekir.</textarea>
+        </label>
+
+        <label class="field full">
+          <span>Fiyat kapsamı</span>
+          <textarea name="price_scope">Belirtilen bedel, bu belgede tanımlanan charter uçuş hizmeti içindir. Sonradan talep edilen ek hizmetler ayrıca fiyatlandırılabilir.</textarea>
+        </label>
+
+        <label class="field full">
+          <span>İptal koşulları</span>
+          <textarea name="cancellation_terms" placeholder="Bağlı operator quote içindeki iptal koşulu varsa otomatik gelir."></textarea>
+        </label>
+
+        <label class="field full">
+          <span>Belgeye eklenecek ek not</span>
+          <textarea name="additional_terms" placeholder="Bagaj, evcil hayvan, catering, transfer veya özel ticari not..."></textarea>
+        </label>
+      </div>
+
+      <div class="document-builder-actions">
+        <span class="muted">Belge yeni sekmede açılır. “PDF / Yazdır” ile PDF olarak kaydedebilirsiniz.</span>
+        <div>
+          <button id="cancelDocumentBuilder" class="secondary-button" type="button">Vazgeç</button>
+          <button class="primary-button" type="submit">Belgeyi Oluştur ↗</button>
+        </div>
+      </div>
+    </form>
+  </section>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
