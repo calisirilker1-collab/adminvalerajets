@@ -36,6 +36,9 @@
   let dealClientQuotes = [];
   let dealTimeline = [];
   let operatorDirectory = [];
+  let agentTasks = [];
+  let agentRuns = [];
+  let agentApprovals = [];
   let mainView = 'deals';
 
   const STATUS = {
@@ -83,7 +86,7 @@
     loginView.hidden=true; appView.hidden=false;
     $('userEmail').textContent=session.user?.email||'Yönetici';
     $('userAvatar').textContent=(session.user?.email?.[0]||'V').toUpperCase();
-    await Promise.all([loadRequests(), loadOperatorDirectory()]);
+    await Promise.all([loadRequests(), loadOperatorDirectory(), loadAgentRuntime({silent:true})]);
   }
 
   async function loadOperatorDirectory(){
@@ -128,14 +131,173 @@
     $('operatorDirectoryBody').querySelectorAll('.toggle-preferred').forEach(b=>b.addEventListener('click',()=>togglePreferredOperator(b.dataset.id)));
   }
   function showDealList(){
-    mainView='deals'; $('statsGrid').hidden=false; $('dealsPanel').hidden=false; $('operatorDirectoryView').hidden=true;
+    mainView='deals'; $('statsGrid').hidden=false; $('dealsPanel').hidden=false; $('operatorDirectoryView').hidden=true; $('aiAgentsView').hidden=true;
     document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
     const current=document.querySelector(`.nav-item[data-filter="${activeFilter}"]`)||document.querySelector('.nav-item[data-filter="all"]'); if(current)current.classList.add('active');
   }
   function showOperatorDirectory(){
-    mainView='operators'; $('statsGrid').hidden=true; $('dealsPanel').hidden=true; $('operatorDirectoryView').hidden=false;
+    mainView='operators'; $('statsGrid').hidden=true; $('dealsPanel').hidden=true; $('operatorDirectoryView').hidden=false; $('aiAgentsView').hidden=true;
     document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active')); $('operatorDirectoryNav').classList.add('active'); renderOperatorDirectory();
   }
+  async function loadAgentRuntime({silent=false}={}){
+    const notice=$('agentSetupNotice');
+    try{
+      const [tasksRes,runsRes,approvalsRes]=await Promise.all([
+        db.from('agent_tasks').select('*').order('created_at',{ascending:false}).limit(50),
+        db.from('agent_runs').select('*').order('created_at',{ascending:false}).limit(50),
+        db.from('agent_approvals').select('*').order('requested_at',{ascending:false}).limit(50)
+      ]);
+      const err=tasksRes.error||runsRes.error||approvalsRes.error;
+      if(err) throw err;
+      agentTasks=tasksRes.data||[];
+      agentRuns=runsRes.data||[];
+      agentApprovals=approvalsRes.data||[];
+      if(notice)notice.hidden=true;
+      renderAgentRuntime();
+      return true;
+    }catch(error){
+      console.warn('agent runtime unavailable',error);
+      agentTasks=[];agentRuns=[];agentApprovals=[];
+      if(notice){notice.hidden=false;notice.querySelector('span').textContent='Migration ve Edge Function deploy tamamlanınca bu ekran otomatik aktif olur. '+(error?.message||'');}
+      renderAgentRuntime();
+      if(!silent)notify('AI Agent runtime henüz aktif değil.');
+      return false;
+    }
+  }
+
+  function agentStatusLabel(status){
+    return ({
+      pending:'Bekliyor',
+      running:'Çalışıyor',
+      waiting_approval:'Onay bekliyor',
+      completed:'Tamamlandı',
+      failed:'Başarısız',
+      cancelled:'İptal'
+    })[status]||status||'—';
+  }
+
+  function agentNameLabel(name){
+    return ({
+      valera_orchestrator:'Orchestrator',
+      lead_concierge:'Lead Concierge',
+      operator_sourcing:'Operator Sourcing',
+      quote_analyst:'Quote Analyst',
+      pricing_client_quote:'Pricing',
+      contract_payment:'Contract & Payment',
+      flight_operations:'Flight Operations',
+      follow_up_crm:'Follow-up',
+      human:'Human Review'
+    })[name]||name||'—';
+  }
+
+  function requestLabelById(id){
+    const r=rows.find(x=>String(x.id)===String(id));
+    return r?leadNo(r):String(id||'').slice(0,8);
+  }
+
+  function renderAgentRuntime(){
+    const pending=agentTasks.filter(x=>x.status==='pending').length;
+    const running=agentTasks.filter(x=>x.status==='running').length;
+    const failed=agentTasks.filter(x=>x.status==='failed').length;
+    const approvals=agentApprovals.filter(x=>x.status==='pending');
+
+    if($('agentPendingCount'))$('agentPendingCount').textContent=pending;
+    if($('agentRunningCount'))$('agentRunningCount').textContent=running;
+    if($('agentApprovalCount'))$('agentApprovalCount').textContent=approvals.length;
+    if($('agentFailedCount'))$('agentFailedCount').textContent=failed;
+    if($('navAgentApprovalCount'))$('navAgentApprovalCount').textContent=approvals.length;
+
+    if($('agentApprovalsList')){
+      $('agentApprovalsList').innerHTML=approvals.length?approvals.map(a=>`
+        <div class="agent-item approval-item">
+          <div class="agent-item-main">
+            <span class="agent-chip approval">ONAY</span>
+            <div><strong>${esc(a.title||a.approval_type)}</strong><small>${esc(requestLabelById(a.request_id))} · ${esc(fmtDateTime(a.requested_at))}</small>${a.detail?`<p>${esc(a.detail)}</p>`:''}</div>
+          </div>
+          <div class="agent-item-actions">
+            <button class="secondary-button agent-reject" data-id="${esc(a.id)}">Reddet</button>
+            <button class="primary-button compact agent-approve" data-id="${esc(a.id)}">Onayla</button>
+          </div>
+        </div>`).join(''):'<div class="empty-inline">Bekleyen onay yok.</div>';
+      $('agentApprovalsList').querySelectorAll('.agent-approve').forEach(b=>b.addEventListener('click',()=>decideAgentApproval(b.dataset.id,'approved')));
+      $('agentApprovalsList').querySelectorAll('.agent-reject').forEach(b=>b.addEventListener('click',()=>decideAgentApproval(b.dataset.id,'rejected')));
+    }
+
+    if($('agentTasksList')){
+      $('agentTasksList').innerHTML=agentTasks.length?agentTasks.map(t=>`
+        <div class="agent-item">
+          <div class="agent-item-main">
+            <span class="agent-chip ${esc(t.status)}">${esc(agentStatusLabel(t.status))}</span>
+            <div><strong>${esc(agentNameLabel(t.agent_name))}</strong><small>${esc(requestLabelById(t.request_id))} · ${esc(t.task_type||'Task')}</small>${t.error_message?`<p class="agent-error">${esc(t.error_message)}</p>`:''}</div>
+          </div>
+          <span class="agent-priority ${esc(t.priority)}">${esc(t.priority||'normal')}</span>
+        </div>`).join(''):'<div class="empty-inline">Henüz görev yok.</div>';
+    }
+
+    if($('agentRunsList')){
+      $('agentRunsList').innerHTML=agentRuns.length?`<div class="table-wrap"><table><thead><tr><th>Zaman</th><th>Deal</th><th>Agent</th><th>Model</th><th>Durum</th></tr></thead><tbody>${agentRuns.map(r=>`<tr><td>${esc(fmtDateTime(r.started_at||r.created_at))}</td><td>${esc(requestLabelById(r.request_id))}</td><td>${esc(agentNameLabel(r.agent_name))}</td><td>${esc(r.model||'—')}</td><td><span class="agent-chip ${esc(r.status)}">${esc(agentStatusLabel(r.status))}</span></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty-inline">Henüz agent çalışması yok.</div>';
+    }
+  }
+
+  async function showAgentsView(){
+    mainView='agents';
+    $('statsGrid').hidden=true;
+    $('dealsPanel').hidden=true;
+    $('operatorDirectoryView').hidden=true;
+    $('aiAgentsView').hidden=false;
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    $('aiAgentsNav').classList.add('active');
+    await loadAgentRuntime();
+  }
+
+  async function runOrchestratorForDeal(){
+    if(!activeDeal)return;
+    const button=$('runOrchestratorButton');
+    const original=button.innerHTML;
+    button.disabled=true;button.textContent='AI ÇALIŞIYOR…';
+    try{
+      const {data,error}=await db.functions.invoke('agent-orchestrator',{body:{request_id:activeDeal.id,reason:'manual_admin_review'}});
+      if(error){
+        let message=error.message||'Agent çağrısı başarısız';
+        try{const detail=await error.context?.json?.();if(detail?.error)message=detail.error;}catch(_){}
+        throw new Error(message);
+      }
+      await Promise.all([loadAgentRuntime({silent:true}),reloadTimelineOnly()]);
+      renderTimeline();
+      const d=data?.decision;
+      notify(d?`AI: ${agentNameLabel(d.assigned_agent)} → ${d.next_action}`:'AI Orchestrator tamamlandı.');
+    }catch(error){
+      console.error('agent-orchestrator',error);
+      notify(`AI Orchestrator çalışmadı: ${error?.message||'Sunucu hatası'}`);
+    }finally{
+      button.disabled=false;button.innerHTML=original;
+    }
+  }
+
+  async function decideAgentApproval(id,status){
+    const approval=agentApprovals.find(x=>String(x.id)===String(id));
+    if(!approval)return;
+    const verb=status==='approved'?'onaylamak':'reddetmek';
+    if(!confirm(`${approval.title}\n\nBu işlemi ${verb} istiyor musun?`))return;
+    const {error}=await db.from('agent_approvals').update({
+      status,
+      decided_at:new Date().toISOString(),
+      decided_by:activeUser?.id||null
+    }).eq('id',id);
+    if(error){notify(`Onay güncellenemedi: ${error.message}`);return;}
+
+    if(approval.task_id){
+      const taskStatus=status==='approved'?'pending':'cancelled';
+      const patch={status:taskStatus};
+      if(status==='approved')patch.available_at=new Date().toISOString();
+      const taskUpdate=await db.from('agent_tasks').update(patch).eq('id',approval.task_id);
+      if(taskUpdate.error)console.error('task approval update',taskUpdate.error);
+    }
+
+    await loadAgentRuntime({silent:true});
+    notify(status==='approved'?'Agent aksiyonu onaylandı.':'Agent aksiyonu reddedildi.');
+  }
+
   function openOperatorForm(id=''){
     const o=operatorDirectory.find(x=>x.id===id)||{}; const form=$('operatorForm'); $('operatorFormWrap').hidden=false;
     form.elements.id.value=o.id||''; form.elements.name.value=o.name||''; form.elements.aoc_no.value=o.aoc_no||''; form.elements.email.value=o.email||''; form.elements.phone.value=o.phone||''; form.elements.website.value=o.website||''; form.elements.source_url.value=o.source_url||''; form.elements.email_verified.checked=!!o.email_verified; form.elements.preferred.checked=!!o.preferred; form.elements.notes.value=o.notes||'';
@@ -777,12 +939,15 @@
   statusSelect.innerHTML='<option value="all">Tüm durumlar</option>'+statusOptions('');
   loginForm.addEventListener('submit',async e=>{e.preventDefault();loginError.hidden=true;loginButton.disabled=true;loginButton.textContent='Giriş yapılıyor…';const email=$('loginEmail').value.trim(),password=$('loginPassword').value;const {data,error}=await db.auth.signInWithPassword({email,password});if(error){loginError.hidden=false;loginError.textContent='E-posta veya şifre hatalı.';}else if(data.session){await showDashboard(data.session);}loginButton.disabled=false;loginButton.innerHTML='Giriş Yap <span>→</span>';});
   $('logoutButton').addEventListener('click',async()=>{await db.auth.signOut();rows=[];appView.hidden=true;loginView.hidden=false;});
-  $('refreshButton').addEventListener('click',async()=>{await Promise.all([loadRequests(),loadOperatorDirectory()]);notify(mainView==='operators'?'Operatör listesi yenilendi.':'Talepler yenilendi.');});
+  $('refreshButton').addEventListener('click',async()=>{await Promise.all([loadRequests(),loadOperatorDirectory(),loadAgentRuntime({silent:true})]);notify(mainView==='operators'?'Operatör listesi yenilendi.':mainView==='agents'?'AI Agent ekranı yenilendi.':'Talepler yenilendi.');});
   requestsBody.addEventListener('click',e=>{const b=e.target.closest('[data-id]');if(b)openDeal(b.dataset.id);});
   searchInput.addEventListener('input',renderRows);
   statusSelect.addEventListener('change',()=>{showDealList();activeFilter='all';document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));document.querySelector('[data-filter="all"]').classList.add('active');renderRows();});
   document.querySelectorAll('.nav-item[data-filter]').forEach(btn=>btn.addEventListener('click',()=>{showDealList();activeFilter=btn.dataset.filter;statusSelect.value='all';document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n===btn));$('panelTitle').textContent=btn.textContent.replace(/\d+/g,'').trim();renderRows();}));
   $('operatorDirectoryNav').addEventListener('click',showOperatorDirectory);
+  $('aiAgentsNav').addEventListener('click',showAgentsView);
+  $('refreshAgentsButton').addEventListener('click',()=>loadAgentRuntime());
+  $('runOrchestratorButton').addEventListener('click',runOrchestratorForDeal);
   $('operatorSearch').addEventListener('input',renderOperatorDirectory);
   $('operatorFilter').addEventListener('change',renderOperatorDirectory);
   $('newOperatorButton').addEventListener('click',()=>openOperatorForm());
