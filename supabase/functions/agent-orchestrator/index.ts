@@ -86,6 +86,27 @@ function getSecretKey(): string {
   return key;
 }
 
+async function requireAdmin(req: Request, supabaseUrl: string) {
+  const authHeader = req.headers.get("Authorization") || "";
+  if (!authHeader.startsWith("Bearer ")) throw new Error("Authentication required.");
+
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!anonKey) throw new Error("SUPABASE_ANON_KEY is unavailable.");
+
+  const userDb = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data: userData, error: userError } = await userDb.auth.getUser();
+  if (userError || !userData?.user) throw new Error("Invalid session.");
+
+  const { data: isAdmin, error: adminError } = await userDb.rpc("is_valera_admin");
+  if (adminError || isAdmin !== true) throw new Error("Admin authorization required.");
+
+  return userData.user;
+}
+
 async function getOpenAIOutput(body: unknown) {
   const apiKey = Deno.env.get("OPENAI_API_KEY");
   const model = Deno.env.get("OPENAI_MODEL");
@@ -143,6 +164,8 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     if (!supabaseUrl) throw new Error("SUPABASE_URL is unavailable.");
+
+    await requireAdmin(req, supabaseUrl);
 
     const db = createClient(supabaseUrl, getSecretKey(), {
       auth: { persistSession: false, autoRefreshToken: false },
