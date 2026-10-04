@@ -67,17 +67,25 @@ alter table public.agent_tasks enable row level security;
 alter table public.agent_runs enable row level security;
 alter table public.agent_approvals enable row level security;
 
--- Authenticated admin users can read runtime information.
+-- Only Valera admin users can read runtime information.
 drop policy if exists "admin read agent_tasks" on public.agent_tasks;
 create policy "admin read agent_tasks" on public.agent_tasks
-for select to authenticated using (true);
+for select to authenticated using (public.is_valera_admin());
+
+drop policy if exists "admin update agent_tasks" on public.agent_tasks;
+create policy "admin update agent_tasks" on public.agent_tasks
+for update to authenticated using (public.is_valera_admin()) with check (public.is_valera_admin());
 
 drop policy if exists "admin read agent_runs" on public.agent_runs;
 create policy "admin read agent_runs" on public.agent_runs
-for select to authenticated using (true);
+for select to authenticated using (public.is_valera_admin());
 
 drop policy if exists "admin read agent_approvals" on public.agent_approvals;
 create policy "admin read agent_approvals" on public.agent_approvals
-for select to authenticated using (true);
+for select to authenticated using (public.is_valera_admin());
 
--- Agent writes are performed by server-side Edge Functions using the secret/service role.
+drop policy if exists "admin update agent_approvals" on public.agent_approvals;
+create policy "admin update agent_approvals" on public.agent_approvals
+for update to authenticated using (public.is_valera_admin()) with check (public.is_valera_admin());
+
+-- Agent inserts and run writes are performed by server-side Edge Functions using the secret/service role.
