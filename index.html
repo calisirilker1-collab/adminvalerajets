@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Manrope:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=agents-1" />
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -52,6 +52,7 @@
           <button class="nav-item" data-filter="booked"><span>✓</span> Booked</button>
           <button class="nav-item" data-filter="lost"><span>×</span> Lost</button>
           <button class="nav-item" id="operatorDirectoryNav" type="button"><span>✈</span> Operatörler <b id="navOperatorCount">0</b></button>
+          <button class="nav-item" id="aiAgentsNav" type="button"><span>◈</span> AI Agents <b id="navAgentApprovalCount">0</b></button>
         </nav>
       </div>
       <div class="sidebar-bottom">
@@ -137,6 +138,47 @@
           <table class="operator-table"><thead><tr><th>★</th><th>Operatör</th><th>AOC</th><th>RFQ E-posta</th><th>Telefon</th><th>Kaynak</th><th>Son RFQ</th><th></th></tr></thead><tbody id="operatorDirectoryBody"></tbody></table>
         </div>
       </section>
+
+      <section class="panel ai-agents-view" id="aiAgentsView" hidden>
+        <div class="panel-head">
+          <div>
+            <h2>AI Agents</h2>
+            <p>Valera Jets agent çalışma kuyruğu, onaylar ve son agent çalışmaları.</p>
+          </div>
+          <div class="tools">
+            <button id="refreshAgentsButton" class="secondary-button" type="button">↻ Yenile</button>
+          </div>
+        </div>
+
+        <div id="agentSetupNotice" class="agent-setup-notice" hidden>
+          <strong>AI Agent runtime henüz Supabase’e kurulmamış.</strong>
+          <span>Migration ve Edge Function deploy tamamlandığında bu ekran otomatik aktif olur.</span>
+        </div>
+
+        <div class="agent-kpis">
+          <article><span>Bekleyen Görev</span><strong id="agentPendingCount">0</strong></article>
+          <article><span>Çalışıyor</span><strong id="agentRunningCount">0</strong></article>
+          <article><span>Onay Bekliyor</span><strong id="agentApprovalCount">0</strong></article>
+          <article><span>Başarısız</span><strong id="agentFailedCount">0</strong></article>
+        </div>
+
+        <div class="agent-layout">
+          <article class="crm-card">
+            <div class="card-head"><h3>İnsan Onayı Bekleyenler</h3><small>Human-in-the-loop</small></div>
+            <div id="agentApprovalsList" class="agent-list"><div class="empty-inline">Bekleyen onay yok.</div></div>
+          </article>
+
+          <article class="crm-card">
+            <div class="card-head"><h3>Agent Görevleri</h3><small>Son 50 görev</small></div>
+            <div id="agentTasksList" class="agent-list"><div class="empty-inline">Henüz görev yok.</div></div>
+          </article>
+
+          <article class="crm-card full">
+            <div class="card-head"><h3>Son Çalışmalar</h3><small>Agent run log</small></div>
+            <div id="agentRunsList" class="agent-runs-table"><div class="empty-inline">Henüz agent çalışması yok.</div></div>
+          </article>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -152,6 +194,7 @@
         <p id="dealSubline" class="muted">—</p>
       </div>
       <div class="workspace-actions">
+        <button id="runOrchestratorButton" class="secondary-button ai-run-button" type="button">◈ AI Orchestrator</button>
         <a id="dealCall" class="secondary-button" href="#">☎ Ara</a>
         <a id="dealMail" class="secondary-button" href="#">✉ E-posta</a>
       </div>
@@ -282,6 +325,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=agents-1"></script>
 </body>
 </html>
